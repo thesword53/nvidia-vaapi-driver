@@ -6,9 +6,11 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <stdbool.h>
+#include <va/va_drmcommon.h>
 
 #include <pthread.h>
 #include "list.h"
+#include "direct/nv-driver.h"
 
 #define SURFACE_QUEUE_SIZE 16
 #define MAX_IMAGE_COUNT 64
@@ -75,6 +77,11 @@ typedef struct
     NVBuffer    *imageBuffer;
 } NVImage;
 
+typedef struct {
+    CUexternalMemory extMem;
+    CUmipmappedArray mipmapArray;
+} NVCudaImage;
+
 typedef struct _BackingImage {
     NVSurface   *surface;
     EGLImage    image;
@@ -86,9 +93,25 @@ typedef struct _BackingImage {
     int         offsets[4];
     int         strides[4];
     uint64_t    mods[4];
+    uint32_t    size[4];
+    //direct backend only
+    NVCudaImage cudaImages[2];
 } BackingImage;
 
-typedef struct
+struct _NVDriver;
+
+typedef struct {
+    const char *name;
+    bool (*initExporter)(struct _NVDriver *drv);
+    void (*releaseExporter)(struct _NVDriver *drv);
+    bool (*exportCudaPtr)(struct _NVDriver *drv, CUdeviceptr ptr, NVSurface *surface, uint32_t pitch);
+    void (*detachBackingImageFromSurface)(struct _NVDriver *drv, NVSurface *surface);
+    bool (*realiseSurface)(struct _NVDriver *drv, NVSurface *surface);
+    bool (*fillExportDescriptor)(struct _NVDriver *drv, NVSurface *surface, VADRMPRIMESurfaceDescriptor *desc);
+    void (*destroyAllBackingImage)(struct _NVDriver *drv);
+} NVBackend;
+
+typedef struct _NVDriver
 {
     CudaFunctions           *cu;
     CuvidFunctions          *cv;
@@ -96,17 +119,24 @@ typedef struct
     Array/*<Object>*/       objects;
     pthread_mutex_t         objectCreationMutex;
     VAGenericID             nextObjId;
+    bool                    useCorrectNV12Format;
+    bool                    supports16BitSurface;
+    int                     cudaGpuId;
+    int                     drmFd;
+    int                     surfaceCount;
+    pthread_mutex_t         exportMutex;
+    pthread_mutex_t         imagesMutex;
+    Array/*<NVEGLImage>*/   images;
+    const NVBackend         *backend;
+    //fields for direct backend
+    NVDriverContext         driverContext;
+    //fields for egl backend
+    EGLDeviceEXT            eglDevice;
     EGLDisplay              eglDisplay;
     EGLContext              eglContext;
     EGLStreamKHR            eglStream;
     CUeglStreamConnection   cuStreamConnection;
     int                     numFramesPresented;
-    bool                    useCorrectNV12Format;
-    bool                    supports16BitSurface;
-    int                     surfaceCount;
-    pthread_mutex_t         exportMutex;
-    pthread_mutex_t         imagesMutex;
-    Array/*<NVEGLImage>*/   images;
 } NVDriver;
 
 struct _NVCodec;
