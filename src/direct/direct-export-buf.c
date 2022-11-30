@@ -58,6 +58,8 @@ bool direct_initExporter(NVDriver *drv) {
         drv->drmFd = dup(drv->drmFd);
     }
 
+    drv->supports16BitSurface = true;
+
     bool ret = init_nvdriver(&drv->driverContext, drv->drmFd);
 
     findGPUIndexFromFd(drv);
