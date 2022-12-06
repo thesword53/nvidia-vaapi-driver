@@ -30,6 +30,19 @@ typedef enum
     OBJECT_TYPE_IMAGE
 } ObjectType;
 
+typedef enum
+{
+    NV_FORMAT_NONE,
+    NV_FORMAT_NV12,
+    NV_FORMAT_P010,
+    NV_FORMAT_P012,
+    NV_FORMAT_P016,
+    NV_FORMAT_444P,
+    NV_FORMAT_Q410,
+    NV_FORMAT_Q412,
+    NV_FORMAT_Q416
+} NVFormat;
+
 typedef struct Object_t
 {
     ObjectType      type;
@@ -73,7 +86,7 @@ typedef struct
 {
     int         width;
     int         height;
-    uint32_t    format;
+    NVFormat    format;
     NVBuffer    *imageBuffer;
 } NVImage;
 
@@ -85,17 +98,18 @@ typedef struct {
 typedef struct _BackingImage {
     NVSurface   *surface;
     EGLImage    image;
-    CUarray     arrays[2];
+    CUarray     arrays[3];
     uint32_t    width;
     uint32_t    height;
     int         fourcc;
+    NVFormat    format;
     int         fds[4];
     int         offsets[4];
     int         strides[4];
     uint64_t    mods[4];
     uint32_t    size[4];
     //direct backend only
-    NVCudaImage cudaImages[2];
+    NVCudaImage cudaImages[3];
 } BackingImage;
 
 struct _NVDriver;
@@ -121,6 +135,7 @@ typedef struct _NVDriver
     VAGenericID             nextObjId;
     bool                    useCorrectNV12Format;
     bool                    supports16BitSurface;
+    bool                    supports444Surface;
     int                     cudaGpuId;
     int                     drmFd;
     int                     surfaceCount;
@@ -190,6 +205,28 @@ struct _NVCodec {
 };
 
 typedef struct _NVCodec NVCodec;
+
+typedef struct
+{
+    uint32_t x;
+    uint32_t y;
+} NVSubSampling;
+
+typedef struct
+{
+    uint32_t channelCount;
+    uint32_t fourcc;
+    NVSubSampling ss; // Subsampling
+} NVFormatPlane;
+
+typedef struct
+{
+    uint32_t bppc;
+    uint32_t numPlanes;
+    uint32_t fourcc;
+    NVFormatPlane plane[3];
+    VAImageFormat vaFormat;
+} NVFormatInfo;
 
 void appendBuffer(AppendableBuffer *ab, const void *buf, uint64_t size);
 int pictureIdxFromSurfaceId(NVDriver *ctx, VASurfaceID surf);
