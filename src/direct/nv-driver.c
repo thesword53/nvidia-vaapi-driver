@@ -499,7 +499,8 @@ bool alloc_memory(const NVDriverContext *context, const uint32_t size, int *fd) 
      uint32_t alignedHeight = ROUND_UP(height, gobHeightInBytes << log2GobsPerBlockY);
 
      uint32_t imageSizeInBytes = widthInBytes * alignedHeight;
-     uint32_t size = imageSizeInBytes;
+     //Memory size should be multiple of page size
+     uint32_t size = ROUND_UP(imageSizeInBytes, 4096);
 
      //this gets us some memory, and the fd to import into cuda
      int memFd = -1;
@@ -535,7 +536,7 @@ bool alloc_memory(const NVDriverContext *context, const uint32_t size, int *fd) 
      };
 
      struct drm_nvidia_gem_import_nvkms_memory_params params = {
-         .mem_size = imageSizeInBytes,
+         .mem_size = size,
          .nvkms_params_ptr = (uint64_t) &nvkmsParams,
          .nvkms_params_size = context->driverMajorVersion == 470 ? 0x20 : sizeof(nvkmsParams) //needs to be 0x20 in the 470 series driver
      };

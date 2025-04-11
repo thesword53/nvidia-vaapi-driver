@@ -180,6 +180,7 @@ typedef struct _NVContext
     bool                exiting;
     pthread_mutex_t     surfaceCreationMutex;
     int                 surfaceCount;
+    cudaVideoChromaFormat chromaFormat;
 } NVContext;
 
 typedef struct

@@ -467,6 +467,50 @@ out:
     return NULL;
 }
 
+static VAStatus reconfigureDecoderSurfaceCount(NVDriver *drv, NVContext *nvCtx, uint32_t surfaceCount)
+{
+    int display_area_width = nvCtx->width;
+    int display_area_height = nvCtx->height;
+
+    // If we're increasing the surface size for the chroma subsampling,
+    // increase the displayArea to match
+    switch(nvCtx->chromaFormat) {
+        case cudaVideoChromaFormat_422:
+            display_area_width = ROUND_UP(display_area_width, 2);
+            break;
+        case cudaVideoChromaFormat_420:
+            display_area_width = ROUND_UP(display_area_width, 2);
+            display_area_height = ROUND_UP(display_area_height, 2);
+            break;
+        default:
+            // no change needed
+            break;
+    }
+
+    CUVIDRECONFIGUREDECODERINFO vrdi = {
+        .ulWidth = vrdi.ulTargetWidth = nvCtx->width,
+        .ulHeight = vrdi.ulTargetHeight = nvCtx->height,
+        .ulNumDecodeSurfaces = surfaceCount,
+        .display_area.right  = display_area_width,
+        .display_area.bottom = display_area_height,
+    };
+
+    LOG("reconfiguring decoder with %u surface...", surfaceCount);
+
+    CHECK_CUDA_RESULT_RETURN(cu->cuCtxPushCurrent(drv->cudaContext), VA_STATUS_ERROR_OPERATION_FAILED);
+    CUresult result = cv->cuvidReconfigureDecoder(nvCtx->decoder, &vrdi);
+    CHECK_CUDA_RESULT_RETURN(cu->cuCtxPopCurrent(NULL), VA_STATUS_ERROR_OPERATION_FAILED);
+
+    if (result != CUDA_SUCCESS)
+    {
+        LOG("cuvidReconfigureDecoder failed: %d", result);
+        return VA_STATUS_ERROR_ALLOCATION_FAILED;
+    }
+
+    nvCtx->surfaceCount = surfaceCount;
+
+    return VA_STATUS_SUCCESS;
+}
 
 #define MAX_PROFILES 32
 static VAStatus nvQueryConfigProfiles(
@@ -1068,9 +1112,12 @@ static VAStatus nvCreateContext(
         cfg->bitDepth = surface->bitDepth;
     }
 
-     // Setting to maximun value if num_render_targets == 0 to prevent picture index overflow as additional surfaces can be created after calling nvCreateContext
-    int surfaceCount = num_render_targets > 0 ? num_render_targets : 32;
+    if (drv->surfaceCount <= 1 && num_render_targets == 0) {
+        LOG("0/1 surfaces have been passed to vaCreateContext, this might cause errors. Setting surface count to 32");
+        num_render_targets = 32;
+    }
 
+    int surfaceCount = drv->surfaceCount > 1 ? drv->surfaceCount : num_render_targets;
     if (surfaceCount > 32) {
         LOG("Application requested %d surface(s), limiting to 32. This may cause issues.", surfaceCount);
         surfaceCount = 32;
@@ -1133,6 +1180,7 @@ static VAStatus nvCreateContext(
     nvCtx->height = picture_height;
     nvCtx->codec = selectedCodec;
     nvCtx->surfaceCount = surfaceCount;
+    nvCtx->chromaFormat = cfg->chromaFormat;
 
     pthread_mutexattr_t attrib;
     pthread_mutexattr_init(&attrib);
@@ -1310,8 +1358,11 @@ static VAStatus nvBeginPicture(
 
     //if this surface hasn't been used before, give it a new picture index
     if (surface->pictureIdx == -1) {
+        // recconfigure decoder if we have more than maximun decode surfaces
         if (nvCtx->currentPictureId == nvCtx->surfaceCount) {
-            return VA_STATUS_ERROR_MAX_NUM_EXCEEDED;
+            VAStatus status = reconfigureDecoderSurfaceCount(drv, nvCtx, nvCtx->surfaceCount + 1);
+            if (status != VA_STATUS_SUCCESS)
+                return status;
         }
         surface->pictureIdx = nvCtx->currentPictureId++;
     }
